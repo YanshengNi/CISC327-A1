@@ -116,3 +116,21 @@ def test_create_book_missing_title(client):
     })
 
     assert response.status_code in (400, 422)
+
+def test_create_book_with_zero_copies(client):
+    response = make_book(
+        client,
+        title="Reference Only",
+        isbn="ZERO001",
+        copies=0
+    )
+
+    assert response.status_code == 201
+
+    book = response.get_json()
+    assert book["total_copies"] == 0
+    assert book["available_copies"] == 0
+
+    fetched = client.get(f"/books/{book['id']}")
+    assert fetched.status_code == 200
+    assert fetched.get_json()["available_copies"] == 0
