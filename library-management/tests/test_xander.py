@@ -4,7 +4,7 @@
 
 import pytest
 
-
+#this tests the member tab
 def create_member(client, name="Alex Reader", email="alex@example.com"):
     response = client.post("/members", json={
         "name": name,
@@ -13,7 +13,7 @@ def create_member(client, name="Alex Reader", email="alex@example.com"):
     assert response.status_code == 201
     return response.get_json()
 
-
+#this tests the books tab
 def create_book(client, copies=1):
     response = client.post("/books", json={
         "title": "Library Test Book",
@@ -24,14 +24,14 @@ def create_book(client, copies=1):
     assert response.status_code == 201
     return response.get_json()
 
-
+#this tests the checkout
 def checkout(client, member_id, book_id):
     return client.post("/loans", json={
         "member_id": member_id,
         "book_id": book_id
     })
 
-
+#this tests the members
 def test_create_member_and_retrieve_record(client):
     member = create_member(client)
 
@@ -42,7 +42,7 @@ def test_create_member_and_retrieve_record(client):
     assert response.status_code == 200
     assert response.get_json()["email"] == "alex@example.com"
 
-
+#this tests the members again
 def test_list_members_after_creation(client):
     create_member(client, "Alex Reader", "alex@example.com")
     create_member(client, "Sam Reader", "sam@example.com")
@@ -53,7 +53,7 @@ def test_list_members_after_creation(client):
     names = {m["name"] for m in response.get_json()}
     assert names == {"Alex Reader", "Sam Reader"}
 
-
+#this tests the loans 
 def test_checkout_reduces_available_copies(client):
     member = create_member(client)
     book = create_book(client)
@@ -70,7 +70,7 @@ def test_checkout_reduces_available_copies(client):
     updated_book = client.get(f"/books/{book['id']}").get_json()
     assert updated_book["available_copies"] == 0
 
-
+#this tests the returns 
 def test_return_restores_available_copies(client):
     member = create_member(client)
     book = create_book(client)
@@ -85,7 +85,7 @@ def test_return_restores_available_copies(client):
     updated_book = client.get(f"/books/{book['id']}").get_json()
     assert updated_book["available_copies"] == 1
 
-
+#this tests the loans
 def test_checkout_when_no_copies_remain_is_rejected(client):
     member = create_member(client)
     book = create_book(client, copies=1)
