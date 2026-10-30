@@ -111,14 +111,14 @@ def test_checkout_nonexistent_book_returns_404(client):
     assert response.status_code == 404
     assert response.get_json()["error"] == "Book not found"
 
-
+#this tests the return edge cases
 def test_return_nonexistent_loan_returns_404(client):
     response = client.put("/loans/99999/return")
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Loan not found"
 
-
+#this tests the retrurns
 def test_cannot_return_same_loan_twice(client):
     member = create_member(client)
     book = create_book(client)
@@ -134,7 +134,7 @@ def test_cannot_return_same_loan_twice(client):
     updated_book = client.get(f"/books/{book['id']}").get_json()
     assert updated_book["available_copies"] == 1
 
-
+#this tests the extentions
 def test_renew_loan_extends_due_date(client):
     member = create_member(client)
     book = create_book(client)
@@ -147,7 +147,7 @@ def test_renew_loan_extends_due_date(client):
     assert response.status_code == 200
     assert response.get_json()["due_date"] > original_due_date
 
-
+#this tests the loans
 def test_cannot_renew_returned_loan(client):
     member = create_member(client)
     book = create_book(client)
@@ -160,7 +160,7 @@ def test_cannot_renew_returned_loan(client):
     assert response.status_code == 400
     assert response.get_json()["error"] == "Loan already returned"
 
-
+#this tests the loans tab
 def test_list_loans_filter_by_book_id(client):
     member = create_member(client)
     book1 = create_book(client)
@@ -176,7 +176,7 @@ def test_list_loans_filter_by_book_id(client):
     assert len(loans) == 1
     assert loans[0]["book_id"] == book1["id"]
 
-
+#this tests the loans tab
 def test_list_loans_filter_by_member_id(client):
     member1 = create_member(client, "Alex", "alex@example.com")
     member2 = create_member(client, "Sam", "sam@example.com")
