@@ -1,5 +1,48 @@
 {% extends "base.html" %}
 {% block content %}
+<input type="text" id="book-search" placeholder="Search by title or author">
+
+<table id="books-table" hidden>
+  <thead>
+    <tr><th>Title</th><th>Author</th><th>ISBN</th><th>Available</th></tr>
+  </thead>
+  <tbody id="books-body"></tbody>
+</table>
+
+<script>
+const input = document.getElementById("book-search");
+const table = document.getElementById("books-table");
+const tbody = document.getElementById("books-body");
+
+async function loadBooks(search) {
+  const res = await fetch(`/books?search=${encodeURIComponent(search)}`);
+  const books = await res.json();
+  tbody.innerHTML = books.map(b => `
+    <tr>
+      <td>${b.title}</td>
+      <td>${b.author}</td>
+      <td>${b.isbn}</td>
+      <td>${b.available_copies}/${b.total_copies}</td>
+    </tr>`).join("");
+}
+
+let timer;
+input.addEventListener("input", () => {
+  clearTimeout(timer);
+  const query = input.value.trim();
+
+  if (!query) {
+    table.hidden = true;
+    tbody.innerHTML = "";
+    return;
+  }
+
+  timer = setTimeout(async () => {
+    await loadBooks(query);
+    table.hidden = false;
+  }, 250);
+});
+</script>
 <h1>Books</h1>
 <table>
   <tr>
