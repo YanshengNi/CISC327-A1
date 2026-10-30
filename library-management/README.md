@@ -54,6 +54,25 @@ app working without a REST client, and calls the same in-memory store.
 | POST | `/loans` | Check out a book (`book_id`, `member_id`) |
 | PUT | `/loans/<id>/return` | Return a loaned book |
 | GET | `/loans?member_id=&book_id=` | Look up loans |
+| GET | `/books?available=true` | List only books with available copies |
+
+
+
+
+### Filter Available Books
+
+Users can filter the book catalog to show only books that
+currently have at least one available copy.
+
+**Endpoint:** `GET /books?available=true`
+
+Books with `available_copies = 0` are excluded.
+
+Example:
+`GET /books?available=true&search=Python`
+
+This combines book searching with availability filtering.
+
 
 ## Tests
 
