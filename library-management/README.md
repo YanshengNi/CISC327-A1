@@ -31,6 +31,13 @@ books in/out:
 This UI is separate from the JSON API below — it's there so you can see the
 app working without a REST client, and calls the same in-memory store.
 
+
+## Book Search
+
+Searches books and has a second copy of the book table that is hidden until something is typed.
+Updates every 250 ms to prevent it from updating every tick and/or every keystroke.
+Implemented directly into the Books frontend in `books.html`
+
 ## Entities
 
 - **Book**: `id, title, author, isbn, total_copies, available_copies`
@@ -54,6 +61,11 @@ app working without a REST client, and calls the same in-memory store.
 | POST | `/loans` | Check out a book (`book_id`, `member_id`) |
 | PUT | `/loans/<id>/return` | Return a loaned book |
 | GET | `/loans?member_id=&book_id=` | Look up loans |
+
+
+
+
+
 
 ## Tests
 
