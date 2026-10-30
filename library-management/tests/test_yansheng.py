@@ -107,3 +107,30 @@ def test_update_and_delete_missing_book_return_404(client):
 
     assert update.status_code == 404
     assert delete.status_code == 404
+
+def test_create_book_missing_title(client):
+    response = client.post("/books", json={
+        "author": "John Smith",
+        "isbn": "1234567890",
+        "total_copies": 2
+    })
+
+    assert response.status_code in (400, 422)
+
+def test_create_book_with_zero_copies(client):
+    response = make_book(
+        client,
+        title="Reference Only",
+        isbn="ZERO001",
+        copies=0
+    )
+
+    assert response.status_code == 201
+
+    book = response.get_json()
+    assert book["total_copies"] == 0
+    assert book["available_copies"] == 0
+
+    fetched = client.get(f"/books/{book['id']}")
+    assert fetched.status_code == 200
+    assert fetched.get_json()["available_copies"] == 0
