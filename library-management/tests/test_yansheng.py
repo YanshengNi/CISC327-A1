@@ -107,3 +107,12 @@ def test_update_and_delete_missing_book_return_404(client):
 
     assert update.status_code == 404
     assert delete.status_code == 404
+
+def test_create_book_missing_title(client):
+    response = client.post("/books", json={
+        "author": "John Smith",
+        "isbn": "1234567890",
+        "total_copies": 2
+    })
+
+    assert response.status_code in (400, 422)
