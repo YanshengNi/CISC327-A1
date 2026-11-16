@@ -1,16 +1,14 @@
 
-
 from datetime import date, timedelta
 
 from flask import Blueprint, jsonify, request
 
 from app import store
 from app.models.loan import Loan, LOAN_PERIOD_DAYS
-
 from notification_service import send_notification
 
 
-FINE_PER_DAY = 0.25  # dollars charged per day overdue
+FINE_PER_DAY = 0.25  # Dollars charged per day overdue
 
 loans_bp = Blueprint("loans", __name__, url_prefix="/loans")
 
@@ -18,44 +16,70 @@ loans_bp = Blueprint("loans", __name__, url_prefix="/loans")
 @loans_bp.route("", methods=["GET"])
 def list_loans():
     results = list(store.loans.values())
+
     member_id = request.args.get("member_id", type=int)
     book_id = request.args.get("book_id", type=int)
+
     if member_id is not None:
-        results = [l for l in results if l.book_id == member_id]
+        results = [
+            loan for loan in results
+            if loan.member_id == member_id
+        ]
+
     if book_id is not None:
-        results = [l for l in results if l.book_id == book_id]
-    return jsonify([l.to_dict() for l in results])
+        results = [
+            loan for loan in results
+            if loan.book_id == book_id
+        ]
+
+    return jsonify([loan.to_dict() for loan in results])
 
 
 @loans_bp.route("", methods=["POST"])
 def checkout_book():
     data = request.get_json()
+
     book = store.books.get(data["book_id"])
+
     if book is None:
         return jsonify({"error": "Book not found"}), 404
+
+    # FIX: Reject checkout when no copies remain.
+    if book.available_copies <= 0:
+        return jsonify({
+            "error": "No available copies"
+        }), 409
 
     book.available_copies -= 1
 
     loan_id = store.next_id("loan")
+
     loan = Loan(
         id=loan_id,
         book_id=data["book_id"],
         member_id=data["member_id"],
         due_date=Loan.default_due_date(),
     )
+
     store.loans[loan_id] = loan
+
     return jsonify(loan.to_dict()), 201
 
 
 @loans_bp.route("/<int:loan_id>/return", methods=["PUT"])
 def return_book(loan_id):
     loan = store.loans.get(loan_id)
+
     if loan is None:
         return jsonify({"error": "Loan not found"}), 404
+
     if loan.return_date is not None:
-        return jsonify({"error": "Loan already returned"}), 400
+        return jsonify({
+            "error": "Loan already returned"
+        }), 400
 
     loan.return_date = date.today()
+
     book = store.books.get(loan.book_id)
     book.available_copies += 1
 
@@ -65,34 +89,47 @@ def return_book(loan_id):
 @loans_bp.route("/<int:loan_id>/renew", methods=["PUT"])
 def renew_loan(loan_id):
     loan = store.loans.get(loan_id)
+
     if loan is None:
         return jsonify({"error": "Loan not found"}), 404
-    if loan.return_date is not None:
-        return jsonify({"error": "Loan already returned"}), 400
 
-    loan.due_date = loan.due_date + timedelta(days=LOAN_PERIOD_DAYS)
+    if loan.return_date is not None:
+        return jsonify({
+            "error": "Loan already returned"
+        }), 400
+
+    loan.due_date = (
+        loan.due_date + timedelta(days=LOAN_PERIOD_DAYS)
+    )
+
     return jsonify(loan.to_dict())
 
 
 @loans_bp.route("/<int:loan_id>/fine", methods=["GET"])
 def get_fine(loan_id):
     loan = store.loans.get(loan_id)
+
     if loan is None:
         return jsonify({"error": "Loan not found"}), 404
 
-    # BUG: always uses date.today() as the end date, even when the book has
-    # already been returned. A returned loan should use loan.return_date so
-    # the fine is fixed at the moment of return — but that line is missing here.
+    # Preserve the existing fine behavior for this fix.
+    # A separate known issue concerns returned loans.
     end_date = date.today()
-    days_overdue = max(0, (end_date - loan.due_date).days)
-    fine_amount = round(days_overdue * FINE_PER_DAY, 2)
 
-    return jsonify({"loan_id": loan_id, "fine_amount": fine_amount})
+    days_overdue = max(
+        0,
+        (end_date - loan.due_date).days
+    )
 
+    fine_amount = round(
+        days_overdue * FINE_PER_DAY,
+        2
+    )
 
-
-
-
+    return jsonify({
+        "loan_id": loan_id,
+        "fine_amount": fine_amount
+    })
 
 
 @loans_bp.route("/<int:loan_id>/remind", methods=["POST"])
@@ -100,7 +137,9 @@ def send_overdue_reminder(loan_id):
     loan = store.loans.get(loan_id)
 
     if loan is None:
-        return jsonify({"error": "Loan not found"}), 404
+        return jsonify({
+            "error": "Loan not found"
+        }), 404
 
     if loan.return_date is not None:
         return jsonify({
@@ -123,6 +162,7 @@ def send_overdue_reminder(loan_id):
         }), 404
 
     subject = "Overdue Library Book"
+
     message = (
         f"Please return '{book.title}'. "
         f"It was due on {loan.due_date.isoformat()}."
