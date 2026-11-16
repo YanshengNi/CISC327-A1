@@ -60,6 +60,9 @@ Implemented directly into the Books frontend in `books.html`
 | DELETE | `/members/<id>` | Delete a member |
 | POST | `/loans` | Check out a book (`book_id`, `member_id`) |
 | PUT | `/loans/<id>/return` | Return a loaned book |
+| POST | `/loans/<id>/remind` | Send an overdue-book reminder |
+| PUT | `/loans/<id>/renew` | Renew a loan |
+| GET | `/loans/<id>/fine` | Calculate an overdue fine |
 | GET | `/loans?member_id=&book_id=` | Look up loans |
 | GET | `/books?available=true` | List only books with available copies |
 
@@ -76,10 +79,48 @@ currently have at least one available copy.
 Books with `available_copies = 0` are excluded.
 
 Example:
-`GET /books?available=true&search=Python`
+`GET /books?available=true&search=Pytho
 
 This combines book searching with availability filtering.
 
+
+
+## Notification Service (Assignment 3)
+
+The Library Management System includes a simulated
+notification service for overdue books.
+
+The notification service is implemented in
+`notification_service.py`.
+
+### Overdue Book Reminder
+
+Endpoint: `POST /loans/<id>/remind`
+
+When a reminder is requested, the system:
+
+1. Checks whether the loan exists.
+2. Verifies that the book has not been returned.
+3. Checks whether the book is overdue.
+4. Retrieves the member's email and book information.
+5. Calls `send_notification()` to simulate a reminder.
+
+If the notification succeeds, the response contains
+`"notified": true`.
+
+If notification delivery fails, the response contains
+`"notified": false`.
+
+The service does not send real emails.
+
+### Testing
+
+Assignment 3 uses pytest stubs and mocks to test
+notification behavior without contacting an external service.
+
+Member A tests are located in:
+
+`tests/test_a3_yansheng.py`
 
 
 
@@ -88,6 +129,23 @@ This combines book searching with availability filtering.
 
 ## Tests
 
+Run all tests:
+
 ```bash
-pytest
+python -m pytest -v
 ```
+
+Run tests with coverage:
+
+```bash
+python -m pytest --cov=app --cov-report=term-missing --cov-report=html
+```
+
+Run Member A Assignment 3 tests:
+
+```bash
+python -m pytest tests/test_a3_yansheng.py -v
+```
+
+The project requires at least 90% application line coverage
+for Assignment 3.
