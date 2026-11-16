@@ -37,8 +37,7 @@ def send_notification(recipient: str, subject: str, message: str) -> bool:
     Return False without recording anything if any argument is not a string,
     is empty/whitespace-only, or the simulated service is unavailable.
     A recipient is a nonempty string (for example, an email or staff label);
-    this library version performs a simple recipient format check; it does
-    not verify actual email deliverability.
+    this simulator does not validate email addresses or actual deliverability.
     Valid values are stored exactly as supplied. Repeated sends are recorded
     separately. True means recorded by the simulator, not delivered by email.
     """
