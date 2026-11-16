@@ -45,6 +45,10 @@ def send_notification(recipient: str, subject: str, message: str) -> bool:
                for value in (recipient, subject, message)):
         return False
 
+    # Library customization: require a basic email-shaped recipient.
+    if "@" not in recipient or recipient.startswith("@") or recipient.endswith("@"):
+        return False
+
     if not is_service_available():
         return False
 

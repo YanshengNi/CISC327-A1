@@ -1,3 +1,4 @@
+
 from flask import Blueprint, jsonify, request
 
 from app import store
@@ -28,10 +29,18 @@ def list_books():
     return jsonify([b.to_dict() for b in results])
 
 
-
 @books_bp.route("", methods=["POST"])
 def create_book():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+
+    # FIX: Reject requests with a missing or invalid title.
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("title"), str)
+        or not data["title"].strip()
+    ):
+        return jsonify({"error": "Book title is required"}), 400
+
     book_id = store.next_id("book")
     book = Book(
         id=book_id,
