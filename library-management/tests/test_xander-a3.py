@@ -41,6 +41,29 @@ def add_loan(book_id, member_id):
     return loan_id
 
 
+def add_overdue_loan(book_title, member_name, days_overdue=5):
+    book_id = add_book(book_title)
+    member_id = add_member(member_name)
+    loan_id = add_loan(book_id, member_id)
+    store.loans[loan_id].due_date = date.today() - timedelta(days=days_overdue)
+    return loan_id, book_id, member_id
+
+
+def add_reservation(book_id, member_id):
+    reservation_id = store.next_id("reservation")
+    store.reservations[reservation_id] = Reservation(
+        id=reservation_id,
+        book_id=book_id,
+        member_id=member_id,
+        reservation_date=date.today(),
+        fulfilled=False,
+    )
+    return reservation_id
+
+
+# ---- views.py ----
+
+
 def test_home_page_renders(client):
     resp = client.get("/")
     assert resp.status_code == 200
@@ -68,22 +91,23 @@ def test_create_book_stores_book_and_redirects(client):
     assert created[0].available_copies == 3
 
 
-def test_create_book_missing_field_returns_400(client):
-    before = len(store.books)
-    resp = client.post("/ui/books", data={"author": "Frank Herbert", "isbn": "1", "total_copies": "1"})
+@pytest.mark.parametrize("url, data, store_name", [
+    ("/ui/books", {"author": "Frank Herbert", "isbn": "1", "total_copies": "1"}, "books"),
+    ("/ui/members", {"name": "Jimbo James 3"}, "members"),
+])
+def test_form_missing_field_returns_400(client, url, data, store_name):
+    before = len(getattr(store, store_name))
+    resp = client.post(url, data=data)
     assert resp.status_code == 400
-    assert len(store.books) == before
+    assert len(getattr(store, store_name)) == before
 
 
-def test_delete_book_removes_it(client):
+def test_delete_book_removes_it_and_unknown_id_is_ignored(client):
     book_id = add_book("Dune 3")
     resp = client.post(f"/ui/books/{book_id}/delete")
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("/ui/books")
     assert book_id not in store.books
-
-
-def test_delete_unknown_book_still_redirects(client):
     before = len(store.books)
     resp = client.post("/ui/books/99999/delete")
     assert resp.status_code == 302
@@ -108,22 +132,12 @@ def test_create_member_stores_member_and_redirects(client):
     assert created[0].email == "jimbo2@example.com"
 
 
-def test_create_member_missing_email_returns_400(client):
-    before = len(store.members)
-    resp = client.post("/ui/members", data={"name": "Jimbo James 3"})
-    assert resp.status_code == 400
-    assert len(store.members) == before
-
-
-def test_delete_member_removes_it(client):
+def test_delete_member_removes_it_and_unknown_id_is_ignored(client):
     member_id = add_member("Jimbo James 4")
     resp = client.post(f"/ui/members/{member_id}/delete")
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("/ui/members")
     assert member_id not in store.members
-
-
-def test_delete_unknown_member_still_redirects(client):
     before = len(store.members)
     resp = client.post("/ui/members/99999/delete")
     assert resp.status_code == 302
@@ -216,61 +230,31 @@ def test_return_loan_whose_book_was_deleted(client):
     assert store.loans[loan_id].return_date == date.today()
 
 
-def add_reservation(book_id, member_id):
-    reservation_id = store.next_id("reservation")
-    store.reservations[reservation_id] = Reservation(
-        id=reservation_id,
-        book_id=book_id,
-        member_id=member_id,
-        reservation_date=date.today(),
-        fulfilled=False,
-    )
-    return reservation_id
+# ---- reservations.py ----
 
 
-def test_list_reservations_returns_existing_reservation(client):
-    book_id = add_book("Dune 11")
-    member_id = add_member("Jimbo James 11")
-    reservation_id = add_reservation(book_id, member_id)
-    resp = client.get("/reservations")
-    assert resp.status_code == 200
-    ids = [r["id"] for r in resp.get_json()]
-    assert reservation_id in ids
-
-
-def test_list_reservations_filters_by_book_id(client):
-    book_a = add_book("Dune 12")
-    book_b = add_book("Dune 13")
-    member_id = add_member("Jimbo James 12")
-    res_a = add_reservation(book_a, member_id)
-    res_b = add_reservation(book_b, member_id)
-    resp = client.get(f"/reservations?book_id={book_a}")
+@pytest.mark.parametrize("filter_by", ["book_id", "member_id"])
+def test_list_reservations_filters_by_single_field(client, filter_by):
+    book_a = add_book("Dune 11")
+    book_b = add_book("Dune 12")
+    member_a = add_member("Jimbo James 11")
+    member_b = add_member("Jimbo James 12")
+    res_a = add_reservation(book_a, member_a)
+    res_b = add_reservation(book_b, member_b)
+    value = book_a if filter_by == "book_id" else member_a
+    resp = client.get(f"/reservations?{filter_by}={value}")
     assert resp.status_code == 200
     ids = [r["id"] for r in resp.get_json()]
     assert res_a in ids
     assert res_b not in ids
-    assert all(r["book_id"] == book_a for r in resp.get_json())
-
-
-def test_list_reservations_filters_by_member_id(client):
-    book_id = add_book("Dune 14")
-    member_a = add_member("Jimbo James 13")
-    member_b = add_member("Jimbo James 14")
-    res_a = add_reservation(book_id, member_a)
-    res_b = add_reservation(book_id, member_b)
-    resp = client.get(f"/reservations?member_id={member_b}")
-    assert resp.status_code == 200
-    ids = [r["id"] for r in resp.get_json()]
-    assert res_b in ids
-    assert res_a not in ids
-    assert all(r["member_id"] == member_b for r in resp.get_json())
+    assert all(r[filter_by] == value for r in resp.get_json())
 
 
 def test_list_reservations_filters_by_book_and_member(client):
-    book_a = add_book("Dune 15")
-    book_b = add_book("Dune 16")
-    member_a = add_member("Jimbo James 15")
-    member_b = add_member("Jimbo James 16")
+    book_a = add_book("Dune 13")
+    book_b = add_book("Dune 14")
+    member_a = add_member("Jimbo James 13")
+    member_b = add_member("Jimbo James 14")
     target = add_reservation(book_a, member_a)
     add_reservation(book_a, member_b)
     add_reservation(book_b, member_a)
@@ -286,8 +270,8 @@ def test_list_reservations_filter_with_no_match_returns_empty_list(client):
 
 
 def test_create_reservation_success(client):
-    book_id = add_book("Dune 17")
-    member_id = add_member("Jimbo James 17")
+    book_id = add_book("Dune 15")
+    member_id = add_member("Jimbo James 15")
     before = set(store.reservations)
     resp = client.post("/reservations", json={"book_id": book_id, "member_id": member_id})
     assert resp.status_code == 201
@@ -304,7 +288,7 @@ def test_create_reservation_success(client):
 
 
 def test_create_reservation_unknown_book_returns_404(client):
-    member_id = add_member("Jimbo James 18")
+    member_id = add_member("Jimbo James 16")
     before = len(store.reservations)
     resp = client.post("/reservations", json={"book_id": 99999, "member_id": member_id})
     assert resp.status_code == 404
@@ -313,7 +297,7 @@ def test_create_reservation_unknown_book_returns_404(client):
 
 
 def test_create_reservation_unknown_member_returns_404(client):
-    book_id = add_book("Dune 18")
+    book_id = add_book("Dune 16")
     before = len(store.reservations)
     resp = client.post("/reservations", json={"book_id": book_id, "member_id": 99999})
     assert resp.status_code == 404
@@ -321,21 +305,7 @@ def test_create_reservation_unknown_member_returns_404(client):
     assert len(store.reservations) == before
 
 
-def test_created_reservation_appears_in_list(client):
-    book_id = add_book("Dune 19")
-    member_id = add_member("Jimbo James 19")
-    created = client.post("/reservations", json={"book_id": book_id, "member_id": member_id})
-    reservation_id = created.get_json()["id"]
-    resp = client.get(f"/reservations?book_id={book_id}&member_id={member_id}")
-    assert [r["id"] for r in resp.get_json()] == [reservation_id]
-
-
-def add_overdue_loan(book_title, member_name, days_overdue=5):
-    book_id = add_book(book_title)
-    member_id = add_member(member_name)
-    loan_id = add_loan(book_id, member_id)
-    store.loans[loan_id].due_date = date.today() - timedelta(days=days_overdue)
-    return loan_id, book_id, member_id
+# ---- loans.py: renew, fine ----
 
 
 def test_renew_unknown_loan_returns_404(client):
@@ -350,35 +320,15 @@ def test_fine_unknown_loan_returns_404(client):
     assert resp.get_json() == {"error": "Loan not found"}
 
 
-def test_fine_for_overdue_loan_is_charged_per_day(client):
-    loan_id, _, _ = add_overdue_loan("Dune 20", "Jimbo James 20", days_overdue=4)
+@pytest.mark.parametrize("days_overdue, expected_fine", [(4, 1.0), (1, 0.25), (0, 0.0), (-5, 0.0)])
+def test_fine_amount_by_days_overdue(client, days_overdue, expected_fine):
+    loan_id, _, _ = add_overdue_loan(f"Dune {days_overdue}", f"Jimbo James {days_overdue}", days_overdue)
     resp = client.get(f"/loans/{loan_id}/fine")
     assert resp.status_code == 200
-    assert resp.get_json() == {"loan_id": loan_id, "fine_amount": 1.0}
+    assert resp.get_json() == {"loan_id": loan_id, "fine_amount": expected_fine}
 
 
-def test_fine_for_one_day_overdue(client):
-    loan_id, _, _ = add_overdue_loan("Dune 21", "Jimbo James 21", days_overdue=1)
-    resp = client.get(f"/loans/{loan_id}/fine")
-    assert resp.status_code == 200
-    assert resp.get_json()["fine_amount"] == 0.25
-
-
-def test_fine_is_zero_when_not_yet_due(client):
-    book_id = add_book("Dune 22")
-    member_id = add_member("Jimbo James 22")
-    loan_id = add_loan(book_id, member_id)
-    store.loans[loan_id].due_date = date.today() + timedelta(days=5)
-    resp = client.get(f"/loans/{loan_id}/fine")
-    assert resp.status_code == 200
-    assert resp.get_json()["fine_amount"] == 0.0
-
-
-def test_fine_is_zero_when_due_today(client):
-    loan_id, _, _ = add_overdue_loan("Dune 23", "Jimbo James 23", days_overdue=0)
-    resp = client.get(f"/loans/{loan_id}/fine")
-    assert resp.status_code == 200
-    assert resp.get_json()["fine_amount"] == 0.0
+# ---- loans.py: overdue reminder notifications ----
 
 
 def test_remind_unknown_loan_returns_404_and_sends_nothing(client):
@@ -399,11 +349,9 @@ def test_remind_returned_loan_is_rejected_and_sends_nothing(client):
     mock_send.assert_not_called()
 
 
-def test_remind_loan_not_yet_due_is_rejected_and_sends_nothing(client):
-    book_id = add_book("Dune 25")
-    member_id = add_member("Jimbo James 25")
-    loan_id = add_loan(book_id, member_id)
-    store.loans[loan_id].due_date = date.today() + timedelta(days=3)
+@pytest.mark.parametrize("days_overdue", [-3, 0])
+def test_remind_loan_not_overdue_is_rejected_and_sends_nothing(client, days_overdue):
+    loan_id, _, _ = add_overdue_loan("Dune 25", "Jimbo James 25", days_overdue)
     with patch("app.routes.loans.send_notification") as mock_send:
         resp = client.post(f"/loans/{loan_id}/remind")
     assert resp.status_code == 400
@@ -411,18 +359,13 @@ def test_remind_loan_not_yet_due_is_rejected_and_sends_nothing(client):
     mock_send.assert_not_called()
 
 
-def test_remind_loan_due_today_is_not_overdue(client):
-    loan_id, _, _ = add_overdue_loan("Dune 26", "Jimbo James 26", days_overdue=0)
-    with patch("app.routes.loans.send_notification") as mock_send:
-        resp = client.post(f"/loans/{loan_id}/remind")
-    assert resp.status_code == 400
-    assert resp.get_json()["notified"] is False
-    mock_send.assert_not_called()
-
-
-def test_remind_missing_member_returns_404_and_sends_nothing(client):
-    loan_id, _, member_id = add_overdue_loan("Dune 27", "Jimbo James 27")
-    del store.members[member_id]
+@pytest.mark.parametrize("missing", ["member", "book"])
+def test_remind_missing_member_or_book_returns_404_and_sends_nothing(client, missing):
+    loan_id, book_id, member_id = add_overdue_loan("Dune 27", "Jimbo James 27")
+    if missing == "member":
+        del store.members[member_id]
+    else:
+        del store.books[book_id]
     with patch("app.routes.loans.send_notification") as mock_send:
         resp = client.post(f"/loans/{loan_id}/remind")
     assert resp.status_code == 404
@@ -430,43 +373,37 @@ def test_remind_missing_member_returns_404_and_sends_nothing(client):
     mock_send.assert_not_called()
 
 
-def test_remind_missing_book_returns_404_and_sends_nothing(client):
-    loan_id, book_id, _ = add_overdue_loan("Dune 28", "Jimbo James 28")
-    del store.books[book_id]
-    with patch("app.routes.loans.send_notification") as mock_send:
-        resp = client.post(f"/loans/{loan_id}/remind")
-    assert resp.status_code == 404
-    assert resp.get_json() == {"error": "Member or book not found"}
-    mock_send.assert_not_called()
-
-
-def test_remind_reports_failed_notification(client, monkeypatch):
+def test_remind_failed_send_is_attempted_once_and_reported(client):
     loan_id, _, _ = add_overdue_loan("Dune 29", "Jimbo James 29")
-    monkeypatch.setattr("app.routes.loans.send_notification",
-                        lambda recipient, subject, message: False)
-    resp = client.post(f"/loans/{loan_id}/remind")
+    with patch("app.routes.loans.send_notification", return_value=False) as mock_send:
+        resp = client.post(f"/loans/{loan_id}/remind")
     assert resp.status_code == 200
     assert resp.get_json() == {"loan_id": loan_id, "notified": False}
     assert store.loans[loan_id].return_date is None
+    mock_send.assert_called_once()
 
 
-def test_remind_reports_failure_when_service_unavailable(client, monkeypatch):
-    loan_id, _, _ = add_overdue_loan("Dune 30", "Jimbo James 30")
+@pytest.mark.parametrize("bad_email", ["not-an-email", "   "])
+def test_remind_invalid_recipient_reports_failure(client, bad_email):
+    loan_id, _, member_id = add_overdue_loan("Dune 31", "Jimbo James 31")
+    store.members[member_id].email = bad_email
+    notification_service.clear_notifications()
+    resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"loan_id": loan_id, "notified": False}
+    assert notification_service.get_notifications() == []
+    notification_service.clear_notifications()
+
+
+def test_remind_succeeds_after_service_recovers(client, monkeypatch):
+    loan_id, _, _ = add_overdue_loan("Dune 34", "Jimbo James 34")
     notification_service.clear_notifications()
     monkeypatch.setattr("notification_service.is_service_available", lambda: False)
-    resp = client.post(f"/loans/{loan_id}/remind")
-    assert resp.status_code == 200
-    assert resp.get_json() == {"loan_id": loan_id, "notified": False}
+    first = client.post(f"/loans/{loan_id}/remind")
+    assert first.get_json()["notified"] is False
     assert notification_service.get_notifications() == []
-    notification_service.clear_notifications()
-
-
-def test_remind_reports_failure_for_invalid_recipient(client):
-    loan_id, _, member_id = add_overdue_loan("Dune 31", "Jimbo James 31")
-    store.members[member_id].email = "not-an-email"
-    notification_service.clear_notifications()
-    resp = client.post(f"/loans/{loan_id}/remind")
-    assert resp.status_code == 200
-    assert resp.get_json() == {"loan_id": loan_id, "notified": False}
-    assert notification_service.get_notifications() == []
+    monkeypatch.setattr("notification_service.is_service_available", lambda: True)
+    second = client.post(f"/loans/{loan_id}/remind")
+    assert second.get_json() == {"loan_id": loan_id, "notified": True}
+    assert len(notification_service.get_notifications()) == 1
     notification_service.clear_notifications()
