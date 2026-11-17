@@ -9,6 +9,10 @@ from app.models.member import Member
 
 from app.models.reservation import Reservation
 
+from datetime import date, timedelta
+from unittest.mock import patch
+import notification_service
+
 
 def add_book(title, copies=2):
     book_id = store.next_id("book")
@@ -214,11 +218,6 @@ def test_return_loan_whose_book_was_deleted(client):
     assert resp.status_code == 302
     assert store.loans[loan_id].return_date == date.today()
 
-# Add this import near the top of tests/test_a3_xander.py:
-# from app.models.reservation import Reservation
-#
-# Then paste everything below to the end of the file (reuses add_book / add_member).
-
 
 def add_reservation(book_id, member_id):
     reservation_id = store.next_id("reservation")
@@ -332,3 +331,145 @@ def test_created_reservation_appears_in_list(client):
     reservation_id = created.get_json()["id"]
     resp = client.get(f"/reservations?book_id={book_id}&member_id={member_id}")
     assert [r["id"] for r in resp.get_json()] == [reservation_id]
+
+
+def add_overdue_loan(book_title, member_name, days_overdue=5):
+    book_id = add_book(book_title)
+    member_id = add_member(member_name)
+    loan_id = add_loan(book_id, member_id)
+    store.loans[loan_id].due_date = date.today() - timedelta(days=days_overdue)
+    return loan_id, book_id, member_id
+
+
+def test_renew_unknown_loan_returns_404(client):
+    resp = client.put("/loans/99999/renew")
+    assert resp.status_code == 404
+    assert resp.get_json() == {"error": "Loan not found"}
+
+
+def test_fine_unknown_loan_returns_404(client):
+    resp = client.get("/loans/99999/fine")
+    assert resp.status_code == 404
+    assert resp.get_json() == {"error": "Loan not found"}
+
+
+def test_fine_for_overdue_loan_is_charged_per_day(client):
+    loan_id, _, _ = add_overdue_loan("Dune 20", "Jimbo James 20", days_overdue=4)
+    resp = client.get(f"/loans/{loan_id}/fine")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"loan_id": loan_id, "fine_amount": 1.0}
+
+
+def test_fine_for_one_day_overdue(client):
+    loan_id, _, _ = add_overdue_loan("Dune 21", "Jimbo James 21", days_overdue=1)
+    resp = client.get(f"/loans/{loan_id}/fine")
+    assert resp.status_code == 200
+    assert resp.get_json()["fine_amount"] == 0.25
+
+
+def test_fine_is_zero_when_not_yet_due(client):
+    book_id = add_book("Dune 22")
+    member_id = add_member("Jimbo James 22")
+    loan_id = add_loan(book_id, member_id)
+    store.loans[loan_id].due_date = date.today() + timedelta(days=5)
+    resp = client.get(f"/loans/{loan_id}/fine")
+    assert resp.status_code == 200
+    assert resp.get_json()["fine_amount"] == 0.0
+
+
+def test_fine_is_zero_when_due_today(client):
+    loan_id, _, _ = add_overdue_loan("Dune 23", "Jimbo James 23", days_overdue=0)
+    resp = client.get(f"/loans/{loan_id}/fine")
+    assert resp.status_code == 200
+    assert resp.get_json()["fine_amount"] == 0.0
+
+
+def test_remind_unknown_loan_returns_404_and_sends_nothing(client):
+    with patch("app.routes.loans.send_notification") as mock_send:
+        resp = client.post("/loans/99999/remind")
+    assert resp.status_code == 404
+    assert resp.get_json() == {"error": "Loan not found"}
+    mock_send.assert_not_called()
+
+
+def test_remind_returned_loan_is_rejected_and_sends_nothing(client):
+    loan_id, _, _ = add_overdue_loan("Dune 24", "Jimbo James 24")
+    store.loans[loan_id].return_date = date.today()
+    with patch("app.routes.loans.send_notification") as mock_send:
+        resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 400
+    assert resp.get_json() == {"error": "Book already returned", "notified": False}
+    mock_send.assert_not_called()
+
+
+def test_remind_loan_not_yet_due_is_rejected_and_sends_nothing(client):
+    book_id = add_book("Dune 25")
+    member_id = add_member("Jimbo James 25")
+    loan_id = add_loan(book_id, member_id)
+    store.loans[loan_id].due_date = date.today() + timedelta(days=3)
+    with patch("app.routes.loans.send_notification") as mock_send:
+        resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 400
+    assert resp.get_json() == {"error": "Book is not overdue", "notified": False}
+    mock_send.assert_not_called()
+
+
+def test_remind_loan_due_today_is_not_overdue(client):
+    loan_id, _, _ = add_overdue_loan("Dune 26", "Jimbo James 26", days_overdue=0)
+    with patch("app.routes.loans.send_notification") as mock_send:
+        resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 400
+    assert resp.get_json()["notified"] is False
+    mock_send.assert_not_called()
+
+
+def test_remind_missing_member_returns_404_and_sends_nothing(client):
+    loan_id, _, member_id = add_overdue_loan("Dune 27", "Jimbo James 27")
+    del store.members[member_id]
+    with patch("app.routes.loans.send_notification") as mock_send:
+        resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 404
+    assert resp.get_json() == {"error": "Member or book not found"}
+    mock_send.assert_not_called()
+
+
+def test_remind_missing_book_returns_404_and_sends_nothing(client):
+    loan_id, book_id, _ = add_overdue_loan("Dune 28", "Jimbo James 28")
+    del store.books[book_id]
+    with patch("app.routes.loans.send_notification") as mock_send:
+        resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 404
+    assert resp.get_json() == {"error": "Member or book not found"}
+    mock_send.assert_not_called()
+
+
+def test_remind_reports_failed_notification(client, monkeypatch):
+    loan_id, _, _ = add_overdue_loan("Dune 29", "Jimbo James 29")
+    monkeypatch.setattr("app.routes.loans.send_notification",
+                        lambda recipient, subject, message: False)
+    resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"loan_id": loan_id, "notified": False}
+    assert store.loans[loan_id].return_date is None
+
+
+def test_remind_reports_failure_when_service_unavailable(client, monkeypatch):
+    loan_id, _, _ = add_overdue_loan("Dune 30", "Jimbo James 30")
+    notification_service.clear_notifications()
+    monkeypatch.setattr("notification_service.is_service_available", lambda: False)
+    resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"loan_id": loan_id, "notified": False}
+    assert notification_service.get_notifications() == []
+    notification_service.clear_notifications()
+
+
+def test_remind_reports_failure_for_invalid_recipient(client):
+    loan_id, _, member_id = add_overdue_loan("Dune 31", "Jimbo James 31")
+    store.members[member_id].email = "not-an-email"
+    notification_service.clear_notifications()
+    resp = client.post(f"/loans/{loan_id}/remind")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"loan_id": loan_id, "notified": False}
+    assert notification_service.get_notifications() == []
+    notification_service.clear_notifications()
