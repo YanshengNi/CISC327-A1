@@ -1,17 +1,14 @@
-from datetime import date
+from datetime import date, timedelta
+from unittest.mock import patch
 
+import notification_service
 import pytest
 
 from app import store
 from app.models.book import Book
 from app.models.loan import Loan
 from app.models.member import Member
-
 from app.models.reservation import Reservation
-
-from datetime import date, timedelta
-from unittest.mock import patch
-import notification_service
 
 
 def add_book(title, copies=2):
